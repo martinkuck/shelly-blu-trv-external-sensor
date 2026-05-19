@@ -1,0 +1,29 @@
+# Helpers für die Shelly BLU TRV Heizungssteuerung
+# In Home Assistant unter Einstellungen → Geräte & Dienste → Helfer anlegen
+# oder in configuration.yaml / separate YAML-Datei eintragen
+
+input_number:
+  soll_temperatur_laden:
+    name: Solltemperatur Laden
+    min: 15
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+
+  soll_temperatur_wc:
+    name: Solltemperatur WC
+    min: 15
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+
+input_boolean:
+  urlaubs_modus_heizung_laden:
+    name: Urlaubsmodus Laden
+    icon: mdi:airplane
+
+  partymodus_laden:
+    name: Partymodus Laden
+    icon: mdi:party-popper

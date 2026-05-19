@@ -1,0 +1,149 @@
+alias: Heizung Laden - Zeitplan
+description: >
+  Setzt Soll-Temperaturen in Helper-Entitäten basierend auf Wochentag,
+  Urlaubs- und Partymodus. Werktags (Mo–Fr) aktiv 22:00–13:00 Sa,
+  Wochenende abgesenkt.
+triggers:
+  - at: "22:00:00"
+    id: werktag_start
+    trigger: time
+  - at: "13:00:00"
+    id: wochenende_start
+    trigger: time
+  - trigger: state
+    entity_id: input_boolean.urlaubs_modus_heizung_laden
+    to: "on"
+    id: urlaub
+  - trigger: state
+    entity_id: input_boolean.partymodus_laden
+    to: "on"
+    id: party
+  - trigger: state
+    entity_id: input_boolean.partymodus_laden
+    to: "off"
+    id: schalter_aus
+  - trigger: state
+    entity_id: input_boolean.urlaubs_modus_heizung_laden
+    to: "off"
+    id: schalter_aus
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: urlaub
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_laden
+            data:
+              value: 18
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_wc
+            data:
+              value: 18
+
+      - conditions:
+          - condition: trigger
+            id: party
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_laden
+            data:
+              value: 22
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_wc
+            data:
+              value: 20
+
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.urlaubs_modus_heizung_laden
+            state: "off"
+          - condition: state
+            entity_id: input_boolean.partymodus_laden
+            state: "off"
+          - condition: trigger
+            id: werktag_start
+          - condition: time
+            weekday:
+              - mon
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_laden
+            data:
+              value: 22
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_wc
+            data:
+              value: 20
+
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.urlaubs_modus_heizung_laden
+            state: "off"
+          - condition: state
+            entity_id: input_boolean.partymodus_laden
+            state: "off"
+          - condition: trigger
+            id: wochenende_start
+          - condition: time
+            weekday:
+              - sat
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_laden
+            data:
+              value: 18
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.soll_temperatur_wc
+            data:
+              value: 18
+
+      - conditions:
+          - condition: trigger
+            id: schalter_aus
+          - condition: state
+            entity_id: input_boolean.partymodus_laden
+            state: "off"
+          - condition: state
+            entity_id: input_boolean.urlaubs_modus_heizung_laden
+            state: "off"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {% set d = now().weekday() %}
+                      {% set m = now().hour * 60 + now().minute %}
+                      {{ (d >= 1 and d <= 4) or (d == 0 and m >= 1320) or (d == 5 and m < 780) }}
+                sequence:
+                  - action: input_number.set_value
+                    target:
+                      entity_id: input_number.soll_temperatur_laden
+                    data:
+                      value: 22
+                  - action: input_number.set_value
+                    target:
+                      entity_id: input_number.soll_temperatur_wc
+                    data:
+                      value: 20
+            default:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.soll_temperatur_laden
+                data:
+                  value: 18
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.soll_temperatur_wc
+                data:
+                  value: 18
+mode: single

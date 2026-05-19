@@ -1,0 +1,31 @@
+alias: Heizung Laden - Schalter Mutex
+description: >
+  Urlaubs- und Partymodus schließen sich gegenseitig aus.
+  Wird einer aktiviert, wird der andere automatisch deaktiviert.
+triggers:
+  - trigger: state
+    entity_id: input_boolean.urlaubs_modus_heizung_laden
+    to: "on"
+    id: urlaub_an
+  - trigger: state
+    entity_id: input_boolean.partymodus_laden
+    to: "on"
+    id: party_an
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: urlaub_an
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.partymodus_laden
+      - conditions:
+          - condition: trigger
+            id: party_an
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.urlaubs_modus_heizung_laden
+mode: single

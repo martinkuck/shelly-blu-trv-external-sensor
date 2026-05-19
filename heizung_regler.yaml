@@ -1,0 +1,68 @@
+alias: Heizung Laden - Regler
+description: >
+  Kernlogik: Regelt zwei Shelly BLU TRVs anhand eines externen Temperatursensors.
+  Boost-Mechanismus: Wenn die Raumtemperatur unter Soll - Hysterese fällt,
+  wird der TRV auf Soll + Boost gesetzt (Ventil weit öffnen).
+  Sobald Solltemperatur erreicht, wird der TRV auf Soll zurückgesetzt.
+triggers:
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: state
+    entity_id: sensor.laden_tuya_temperature
+  - trigger: state
+    entity_id:
+      - input_number.soll_temperatur_laden
+      - input_number.soll_temperatur_wc
+conditions: []
+actions:
+  - variables:
+      ist_temp: "{{ states('sensor.laden_tuya_temperature') | float(15) }}"
+      soll_laden: "{{ states('input_number.soll_temperatur_laden') | float(18) }}"
+      soll_wc: "{{ states('input_number.soll_temperatur_wc') | float(18) }}"
+      hysterese: 0.5   # °C unter Solltemperatur → Boost aktivieren
+      boost: 6         # °C über Solltemperatur → TRV-Sollwert beim Heizen
+
+  # --- Laden TRV ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp < (soll_laden - hysterese) }}"
+        sequence:
+          - target:
+              entity_id: climate.heizung_laden
+            data:
+              temperature: "{{ [soll_laden + boost, 30] | min }}"
+            action: climate.set_temperature
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp >= soll_laden }}"
+        sequence:
+          - target:
+              entity_id: climate.heizung_laden
+            data:
+              temperature: "{{ soll_laden }}"
+            action: climate.set_temperature
+
+  # --- WC TRV ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp < (soll_wc - hysterese) }}"
+        sequence:
+          - target:
+              entity_id: climate.heizung_ladenwc
+            data:
+              temperature: "{{ [soll_wc + boost, 30] | min }}"
+            action: climate.set_temperature
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp >= soll_wc }}"
+        sequence:
+          - target:
+              entity_id: climate.heizung_ladenwc
+            data:
+              temperature: "{{ soll_wc }}"
+            action: climate.set_temperature
+
+mode: single
+max_exceeded: silent

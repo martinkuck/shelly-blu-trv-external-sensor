@@ -1,0 +1,419 @@
+blueprint:
+  name: "Shelly BLU TRV — External Sensor Control"
+  description: >
+    Controls Shelly BLU TRVs using an external room temperature sensor instead
+    of the built-in sensor. A boost mechanism opens the valve wide when heating
+    is needed, and resets to the exact target once the room is warm.
+
+    Supports up to 2 independent TRV zones with separate target temperatures,
+    a weekly schedule, vacation mode, and party mode (mutually exclusive).
+
+    **Requirements:** Two `input_number` helpers for target temperatures and two
+    `input_boolean` helpers for vacation/party mode must exist before importing
+    this blueprint. See helpers/helpers.yaml in the repository.
+
+    **Repository:** https://github.com/YOUR_USERNAME/shelly-blu-trv-external-sensor
+
+  domain: automation
+  author: "Shelly Smart Home Challenge 2026"
+
+  input:
+    # ── Sensors & Actuators ───────────────────────────────────────────────────
+    temperature_sensor:
+      name: External Temperature Sensor
+      description: >
+        Room temperature sensor used as reference (e.g. Tuya, Zigbee, Shelly H&T).
+        Place it away from the radiator — ideally at desk or counter height.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    trv_zone1:
+      name: "TRV Zone 1 — Climate Entity"
+      description: First Shelly BLU TRV to control.
+      selector:
+        entity:
+          domain: climate
+
+    trv_zone2:
+      name: "TRV Zone 2 — Climate Entity (optional)"
+      description: >
+        Second Shelly BLU TRV (e.g. WC, hallway). Set to the same entity as
+        Zone 1 if you only have one zone.
+      selector:
+        entity:
+          domain: climate
+
+    # ── Target Temperature Helpers ────────────────────────────────────────────
+    target_temp_zone1:
+      name: "Target Temperature Helper — Zone 1"
+      description: input_number entity that holds the target temperature for Zone 1.
+      selector:
+        entity:
+          domain: input_number
+
+    target_temp_zone2:
+      name: "Target Temperature Helper — Zone 2"
+      description: input_number entity that holds the target temperature for Zone 2.
+      selector:
+        entity:
+          domain: input_number
+
+    # ── Mode Helpers ──────────────────────────────────────────────────────────
+    vacation_mode:
+      name: Vacation Mode Toggle
+      description: input_boolean — when ON, sets both zones to vacation temperature.
+      selector:
+        entity:
+          domain: input_boolean
+
+    party_mode:
+      name: Party Mode Toggle
+      description: input_boolean — when ON, sets both zones to party temperature.
+      selector:
+        entity:
+          domain: input_boolean
+
+    # ── Temperatures ──────────────────────────────────────────────────────────
+    temp_comfort_zone1:
+      name: "Comfort Temperature — Zone 1"
+      description: Target temperature for Zone 1 during active hours.
+      default: 22
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    temp_comfort_zone2:
+      name: "Comfort Temperature — Zone 2"
+      description: Target temperature for Zone 2 during active hours.
+      default: 20
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    temp_setback:
+      name: Setback Temperature (both zones)
+      description: Temperature during off-hours, vacation, and weekends.
+      default: 18
+      selector:
+        number:
+          min: 5
+          max: 22
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    temp_party_zone1:
+      name: "Party Temperature — Zone 1"
+      default: 22
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    temp_party_zone2:
+      name: "Party Temperature — Zone 2"
+      default: 20
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    # ── Schedule ──────────────────────────────────────────────────────────────
+    comfort_start_time:
+      name: Comfort Period Start Time (weekdays)
+      description: >
+        Time at which comfort temperatures are activated on weekdays (Mon–Fri).
+        Typically the start of the business day or opening hours.
+      default: "22:00:00"
+      selector:
+        time: {}
+
+    setback_start_time:
+      name: Setback Period Start Time (weekend)
+      description: >
+        Time at which setback temperatures are activated on weekends.
+      default: "13:00:00"
+      selector:
+        time: {}
+
+    # ── Controller Parameters ─────────────────────────────────────────────────
+    hysterese:
+      name: Hysteresis (°C)
+      description: >
+        How far below target the room must drop before boost activates.
+        Lower = more responsive, higher = less TRV switching.
+      default: 0.5
+      selector:
+        number:
+          min: 0.1
+          max: 2.0
+          step: 0.1
+          unit_of_measurement: "°C"
+
+    boost:
+      name: Boost (°C above target)
+      description: >
+        How many degrees above target the TRV is set while heating.
+        Higher = valve opens wider = faster heating. Max effective value: 30 − target.
+      default: 6
+      selector:
+        number:
+          min: 2
+          max: 12
+          step: 1
+          unit_of_measurement: "°C"
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+triggers:
+  # Controller: runs every 5 min and on sensor/setpoint change
+  - trigger: time_pattern
+    minutes: /5
+    id: tick
+
+  - trigger: state
+    entity_id: !input temperature_sensor
+    id: sensor_change
+
+  - trigger: state
+    entity_id: !input target_temp_zone1
+    id: setpoint_change
+
+  - trigger: state
+    entity_id: !input target_temp_zone2
+    id: setpoint_change
+
+  # Schedule triggers
+  - trigger: time
+    at: !input comfort_start_time
+    id: comfort_start
+
+  - trigger: time
+    at: !input setback_start_time
+    id: setback_start
+
+  # Mode triggers
+  - trigger: state
+    entity_id: !input vacation_mode
+    id: vacation_changed
+
+  - trigger: state
+    entity_id: !input party_mode
+    id: party_changed
+
+conditions: []
+
+actions:
+  # ── Step 1: Handle schedule and mode changes ───────────────────────────────
+  - choose:
+
+      # Vacation ON → setback both zones, turn off party
+      - conditions:
+          - condition: trigger
+            id: vacation_changed
+          - condition: state
+            entity_id: !input vacation_mode
+            state: "on"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input party_mode
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone1
+            data:
+              value: !input temp_setback
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone2
+            data:
+              value: !input temp_setback
+
+      # Party ON → comfort temps, turn off vacation
+      - conditions:
+          - condition: trigger
+            id: party_changed
+          - condition: state
+            entity_id: !input party_mode
+            state: "on"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input vacation_mode
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone1
+            data:
+              value: !input temp_party_zone1
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone2
+            data:
+              value: !input temp_party_zone2
+
+      # Mode turned OFF → restore schedule-based temperature
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: vacation_changed
+              - condition: trigger
+                id: party_changed
+          - condition: state
+            entity_id: !input vacation_mode
+            state: "off"
+          - condition: state
+            entity_id: !input party_mode
+            state: "off"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {% set d = now().weekday() %}
+                      {% set m = now().hour * 60 + now().minute %}
+                      {{ (d >= 1 and d <= 4) or (d == 0 and m >= 1320) or (d == 5 and m < 780) }}
+                sequence:
+                  - action: input_number.set_value
+                    target:
+                      entity_id: !input target_temp_zone1
+                    data:
+                      value: !input temp_comfort_zone1
+                  - action: input_number.set_value
+                    target:
+                      entity_id: !input target_temp_zone2
+                    data:
+                      value: !input temp_comfort_zone2
+            default:
+              - action: input_number.set_value
+                target:
+                  entity_id: !input target_temp_zone1
+                data:
+                  value: !input temp_setback
+              - action: input_number.set_value
+                target:
+                  entity_id: !input target_temp_zone2
+                data:
+                  value: !input temp_setback
+
+      # Comfort start (weekday trigger)
+      - conditions:
+          - condition: trigger
+            id: comfort_start
+          - condition: state
+            entity_id: !input vacation_mode
+            state: "off"
+          - condition: state
+            entity_id: !input party_mode
+            state: "off"
+          - condition: time
+            weekday:
+              - mon
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone1
+            data:
+              value: !input temp_comfort_zone1
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone2
+            data:
+              value: !input temp_comfort_zone2
+
+      # Setback start (weekend trigger)
+      - conditions:
+          - condition: trigger
+            id: setback_start
+          - condition: state
+            entity_id: !input vacation_mode
+            state: "off"
+          - condition: state
+            entity_id: !input party_mode
+            state: "off"
+          - condition: time
+            weekday:
+              - sat
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone1
+            data:
+              value: !input temp_setback
+          - action: input_number.set_value
+            target:
+              entity_id: !input target_temp_zone2
+            data:
+              value: !input temp_setback
+
+  # ── Step 2: Boost controller — always runs ────────────────────────────────
+  # Schritt 2a: !input-Werte als echte Variablen holen
+  - variables:
+      _sensor: !input temperature_sensor
+      _t1_helper: !input target_temp_zone1
+      _t2_helper: !input target_temp_zone2
+      _hyst: !input hysterese
+      _bst: !input boost
+
+  # Schritt 2b: Berechnungen auf Basis der Variablen aus 2a
+  - variables:
+      ist_temp: "{{ states(_sensor) | float(15) }}"
+      soll1: "{{ states(_t1_helper) | float(18) }}"
+      soll2: "{{ states(_t2_helper) | float(18) }}"
+      hyst: "{{ _hyst | float(0.5) }}"
+      bst: "{{ _bst | float(6) }}"
+
+  # Zone 1
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp < (soll1 - hyst) }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input trv_zone1
+            data:
+              temperature: "{{ [soll1 + bst, 30] | min }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp >= soll1 }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input trv_zone1
+            data:
+              temperature: "{{ soll1 }}"
+
+  # Zone 2
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp < (soll2 - hyst) }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input trv_zone2
+            data:
+              temperature: "{{ [soll2 + bst, 30] | min }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ ist_temp >= soll2 }}"
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input trv_zone2
+            data:
+              temperature: "{{ soll2 }}"
+
+mode: single
+max_exceeded: silent
